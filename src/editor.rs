@@ -46,13 +46,13 @@ impl Editor {
     pub fn run(&mut self) {
         loop {
             if let Err(error) = self.refresh_screen() {
-                die(error);
+                die(&error);
             }
             if self.should_quit {
                 break;
             }
             if let Err(error) = self.process_keypress() {
-                die(error);
+                die(&error);
             }
         }
     }
@@ -66,7 +66,7 @@ impl Editor {
             if doc.is_ok() {
                 doc.unwrap()
             } else {
-                initial_status = format!("ERR: could not open file: {file_name}");
+                initial_status = format!("ERR: could not open file: {}", file_name);
                 Document::default()
             }
         } else {
@@ -131,12 +131,12 @@ impl Editor {
         if width > len {
             status.push_str(&" ".repeat(width - len));
         }
-        status = format!("{status}{line_indicator}");
+        status = format!("{}{}", status, line_indicator);
         status.truncate(width);
         status.truncate(width);
         Terminal::set_bg_color(STATUS_BG_COLOR);
         Terminal::set_fg_color(STATUS_FG_COLOR);
-        println!("{status}\r");
+        println!("{}\r", status);
         Terminal::reset_fg_color();
         Terminal::reset_bg_color();
     }
@@ -144,17 +144,17 @@ impl Editor {
     fn draw_message_bar(&self) {
         Terminal::clear_current_line();
         let message = &self.status_message;
-        if message.time.elapsed() < Duration::new(5, 0) {
+        if Instant::now() - message.time < Duration::new(5, 0) {
             let mut text = message.text.clone();
             text.truncate(self.terminal.size().width as usize);
-            print!("{text}");
+            print!("{}", text);
         }
     }
 
     fn prompt(&mut self, prompt: &str) -> Result<Option<String>, std::io::Error> {
         let mut result = String::new();
         loop {
-            self.status_message = StatusMessage::from(format!("{prompt}{result}"));
+            self.status_message = StatusMessage::from(format!("{}{}", prompt, result));
             self.refresh_screen()?;
             match Terminal::read_key()? {
                 Key::Backspace => {
@@ -208,7 +208,7 @@ impl Editor {
                     self.quit_times -= 1;
                     return Ok(());
                 }
-                self.should_quit = true;
+                self.should_quit = true
             }
             Key::Ctrl('s') => self.save(),
             Key::Delete => self.document.delete(&self.cursor_position),
@@ -305,7 +305,7 @@ impl Editor {
             }
             Key::PageDown => {
                 y = if y.saturating_add(terminal_height) < height {
-                    y + terminal_height
+                    y + terminal_height as usize
                 } else {
                     height
                 }
@@ -329,18 +329,18 @@ impl Editor {
         let start = self.offset.x;
         let end = self.offset.x + width;
         let row = row.render(start, end);
-        println!("{row}\r");
+        println!("{}\r", row)
     }
 
     fn draw_welcome_message(&self) {
-        let mut welcome_message = format!("Hecto editor -- version {VERSION}");
+        let mut welcome_message = format!("Hecto editor -- version {}", VERSION);
         let width = self.terminal.size().width as usize;
         let length = welcome_message.len();
         let padding = width.saturating_sub(length) / 2;
         let spaces = " ".repeat(padding.saturating_sub(1));
-        welcome_message = format!("~{spaces}{welcome_message}");
+        welcome_message = format!("~{}{}", spaces, welcome_message);
         welcome_message.truncate(width);
-        println!("{welcome_message}\r");
+        println!("{}\r", welcome_message);
     }
 
     fn draw_rows(&self) {
@@ -350,15 +350,15 @@ impl Editor {
             if let Some(row) = self.document.row(terminal_row as usize + self.offset.y) {
                 self.draw_row(row);
             } else if self.document.is_empty() && terminal_row == height / 3 {
-                self.draw_welcome_message();
+                self.draw_welcome_message()
             } else {
-                println!("~\r");
+                println!("~\r")
             }
         }
     }
 }
 
-fn die(e: std::io::Error) {
+fn die(e: &std::io::Error) {
     Terminal::clear_screen();
     panic!("{}", e);
 }
