@@ -17,7 +17,7 @@ impl From<&str> for Row {
 }
 
 impl Row {
-    pub fn render(&self, start: usize, end: usize) -> String {
+    #[must_use] pub fn render(&self, start: usize, end: usize) -> String {
         let end = cmp::min(end, self.string.len());
         let start = cmp::min(start, end);
         let mut result = String::new();
@@ -27,7 +27,7 @@ impl Row {
             .take(end - start)
         {
             if grapheme == "\t" {
-                result.push_str(" ");
+                result.push(' ');
             } else {
                 result.push_str(grapheme);
             }
@@ -47,7 +47,7 @@ impl Row {
             length += 1;
             if index == at {
                 length += 1;
-                result.push(c)
+                result.push(c);
             }
             result.push_str(grapheme);
         }
@@ -71,10 +71,10 @@ impl Row {
         self.string = result;
     }
 
-    pub fn len(&self) -> usize {
+    #[must_use] pub fn len(&self) -> usize {
         self.len
     }
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
@@ -105,7 +105,7 @@ impl Row {
         }
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    #[must_use] pub fn as_bytes(&self) -> &[u8] {
         self.string.as_bytes()
     }
 }

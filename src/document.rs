@@ -25,15 +25,15 @@ impl Document {
         })
     }
 
-    pub fn row(&self, index: usize) -> Option<&Row> {
+    #[must_use] pub fn row(&self, index: usize) -> Option<&Row> {
         self.rows.get(index)
     }
 
-    pub fn is_empty(&self) -> bool {
+    #[must_use] pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
     }
 
-    pub fn len(&self) -> usize {
+    #[must_use] pub fn len(&self) -> usize {
         self.rows.len()
     }
     pub fn insert(&mut self, c: char, at: &Position) {
@@ -93,7 +93,7 @@ impl Document {
         }
         Ok(())
     }
-    pub fn is_dirty(&self) -> bool {
+    #[must_use] pub fn is_dirty(&self) -> bool {
         self.dirty
     }
 }
