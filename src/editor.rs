@@ -12,7 +12,12 @@ const STATUS_FG_COLOR: color::Rgb = color::Rgb(63, 63, 63);
 const STATUS_BG_COLOR: color::Rgb = color::Rgb(239, 239, 239);
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Default)]
+#[derive(PartialEq, Copy, Clone)]
+pub enum SearchDirection {
+    Forward,
+    Backward,
+}
+#[derive(Default, Clone)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
@@ -45,6 +50,9 @@ impl StatusMessage {
 impl Editor {
     pub fn run(&mut self) {
         loop {
+            if let Err(error) = self.terminal.update_size() {
+                 die(&error);
+            }
             if let Err(error) = self.refresh_screen() {
                 die(&error);
             }
@@ -59,14 +67,15 @@ impl Editor {
 
     pub fn default() -> Self {
         let args: Vec<String> = env::args().collect();
-        let mut initial_status = String::from("Help: ctrl-q = quit | ctrl-s = save");
+        let mut initial_status =
+            String::from("Help: ctrl-f = find | ctrl-q = quit | ctrl-s = save");
         let document = if args.len() > 1 {
             let file_name = &args[1];
             let doc = Document::open(file_name);
             if doc.is_ok() {
                 doc.unwrap()
             } else {
-                initial_status = format!("ERR: could not open file: {}", file_name);
+                initial_status = format!("ERR: could not open file: {file_name}");
                 Document::default()
             }
         } else {
@@ -123,7 +132,8 @@ impl Editor {
             modified_indicator
         );
         let line_indicator = format!(
-            "{}/{}",
+            "{} | {}/{}",
+            self.document.file_type(),
             self.cursor_position.y.saturating_add(1),
             self.document.len()
         );
@@ -131,12 +141,12 @@ impl Editor {
         if width > len {
             status.push_str(&" ".repeat(width - len));
         }
-        status = format!("{}{}", status, line_indicator);
+        status = format!("{status}{line_indicator}");
         status.truncate(width);
         status.truncate(width);
         Terminal::set_bg_color(STATUS_BG_COLOR);
         Terminal::set_fg_color(STATUS_FG_COLOR);
-        println!("{}\r", status);
+        println!("{status}\r");
         Terminal::reset_fg_color();
         Terminal::reset_bg_color();
     }
@@ -144,19 +154,23 @@ impl Editor {
     fn draw_message_bar(&self) {
         Terminal::clear_current_line();
         let message = &self.status_message;
-        if Instant::now() - message.time < Duration::new(5, 0) {
+        if message.time.elapsed() < Duration::new(5, 0) {
             let mut text = message.text.clone();
             text.truncate(self.terminal.size().width as usize);
-            print!("{}", text);
+            print!("{text}");
         }
     }
 
-    fn prompt(&mut self, prompt: &str) -> Result<Option<String>, std::io::Error> {
+    fn prompt<C>(&mut self, prompt: &str, mut callback: C) -> Result<Option<String>, std::io::Error>
+    where
+        C: FnMut(&mut Self, Key, &String),
+    {
         let mut result = String::new();
         loop {
-            self.status_message = StatusMessage::from(format!("{}{}", prompt, result));
+            self.status_message = StatusMessage::from(format!("{prompt}{result}"));
             self.refresh_screen()?;
-            match Terminal::read_key()? {
+            let key = Terminal::read_key()?;
+            match key {
                 Key::Backspace => {
                     if !result.is_empty() {
                         result.truncate(result.len() - 1);
@@ -174,6 +188,7 @@ impl Editor {
                 }
                 _ => (),
             }
+            callback(self, key, &result);
         }
         self.status_message = StatusMessage::from(String::new());
         if result.is_empty() {
@@ -183,7 +198,7 @@ impl Editor {
     }
     fn save(&mut self) {
         if self.document.file_name.is_none() {
-            let new_name = self.prompt("Save as: ").unwrap_or(None);
+            let new_name = self.prompt("Save as: ", |_, _, _| {}).unwrap_or(None);
             if new_name.is_none() {
                 self.status_message = StatusMessage::from("Save aborted.".to_string());
                 return;
@@ -208,9 +223,10 @@ impl Editor {
                     self.quit_times -= 1;
                     return Ok(());
                 }
-                self.should_quit = true
+                self.should_quit = true;
             }
             Key::Ctrl('s') => self.save(),
+            Key::Ctrl('f') => self.find(),
             Key::Delete => self.document.delete(&self.cursor_position),
             Key::Backspace => {
                 if self.cursor_position.x > 0 || self.cursor_position.y > 0 {
@@ -238,6 +254,45 @@ impl Editor {
             self.status_message = StatusMessage::from(String::new());
         }
         Ok(())
+    }
+
+    fn find(&mut self) {
+        let old_position = self.cursor_position.clone();
+        let mut direction = SearchDirection::Forward;
+        let match_string = self
+            .prompt(
+                "Search (Esc to cancel, arrows to navigate): ",
+                |editor, key, match_string| {
+                    let mut moved = false;
+                    match key {
+                        Key::Right | Key::Down => {
+                            direction = SearchDirection::Forward;
+                            editor.move_cursor(Key::Right);
+                            moved = true;
+                        }
+                        Key::Left | Key::Up => direction = SearchDirection::Backward,
+                        _ => direction = SearchDirection::Forward,
+                    }
+                    if let Some(position) =
+                        editor
+                            .document
+                            .search(&match_string, &editor.cursor_position, direction)
+                    {
+                        editor.cursor_position = position;
+                        editor.scroll();
+                    } else if moved {
+                        editor.move_cursor(Key::Left);
+                    }
+                    editor.document.highlight(Some(match_string));
+                },
+            )
+            .unwrap_or(None);
+        if match_string.is_none() {
+            self.status_message = StatusMessage::from(String::from("Search aborted"));
+            self.cursor_position = old_position;
+            self.scroll();
+        }
+        self.document.highlight(None);
     }
 
     fn scroll(&mut self) {
@@ -305,7 +360,7 @@ impl Editor {
             }
             Key::PageDown => {
                 y = if y.saturating_add(terminal_height) < height {
-                    y + terminal_height as usize
+                    y + terminal_height
                 } else {
                     height
                 }
@@ -329,18 +384,18 @@ impl Editor {
         let start = self.offset.x;
         let end = self.offset.x + width;
         let row = row.render(start, end);
-        println!("{}\r", row)
+        println!("{row}\r");
     }
 
     fn draw_welcome_message(&self) {
-        let mut welcome_message = format!("Hecto editor -- version {}", VERSION);
+        let mut welcome_message = format!("Hecto editor -- version {VERSION}");
         let width = self.terminal.size().width as usize;
         let length = welcome_message.len();
         let padding = width.saturating_sub(length) / 2;
         let spaces = " ".repeat(padding.saturating_sub(1));
-        welcome_message = format!("~{}{}", spaces, welcome_message);
+        welcome_message = format!("~{spaces}{welcome_message}");
         welcome_message.truncate(width);
-        println!("{}\r", welcome_message);
+        println!("{welcome_message}\r");
     }
 
     fn draw_rows(&self) {
@@ -350,9 +405,9 @@ impl Editor {
             if let Some(row) = self.document.row(terminal_row as usize + self.offset.y) {
                 self.draw_row(row);
             } else if self.document.is_empty() && terminal_row == height / 3 {
-                self.draw_welcome_message()
+                self.draw_welcome_message();
             } else {
-                println!("~\r")
+                println!("~\r");
             }
         }
     }

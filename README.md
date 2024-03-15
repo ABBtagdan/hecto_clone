@@ -1,2 +1,1 @@
-# AILIB
-simple rust AI library.
+# Hecto 

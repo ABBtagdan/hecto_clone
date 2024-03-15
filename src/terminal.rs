@@ -26,7 +26,8 @@ impl Terminal {
             _stdout: stdout().into_raw_mode()?,
         })
     }
-    #[must_use] pub fn size(&self) -> &Size {
+    #[must_use]
+    pub fn size(&self) -> &Size {
         &self.size
     }
     pub fn clear_screen() {
@@ -36,13 +37,22 @@ impl Terminal {
         let Position { mut x, mut y } = position;
         x = x.saturating_add(1);
         y = y.saturating_add(1);
+        #[allow(clippy::cast_possible_truncation)]
         let x = x as u16;
+        #[allow(clippy::cast_possible_truncation)]
         let y = y as u16;
         print!("{}", termion::cursor::Goto(x, y));
     }
     pub fn flush() -> Result<(), std::io::Error> {
         io::stdout().flush()
     }
+
+    pub fn update_size(&mut self) -> Result<(), std::io::Error> {
+         let size = termion::terminal_size()?;
+         self.size.width =  size.0;
+         self.size.height = size.1.saturating_sub(2);
+         Ok(())
+    } 
 
     pub fn cursor_hide() {
         print!("{}", termion::cursor::Hide);
